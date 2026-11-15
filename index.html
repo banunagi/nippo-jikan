@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>作業日報 時間計算</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* 配置の考え方: 上に合計の帯を固定し、その下に日報と同じ順番の行を縦に並べる。時刻は下から出る回転式の選択で入れる */
+:root {
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --line: #cfd6dd;
+  --ink: #17212b;
+  --muted: #5d6b78;
+  --accent: #0f5fa8;
+  --accent-soft: #e2eefa;
+  --good: #1c7a45;
+  --good-soft: #e0f3e7;
+  --warn: #8a5a00;
+  --warn-soft: #fbefd2;
+  --bad: #b3261e;
+  --bad-soft: #fbe4e2;
+  --font-body: "BIZ UDPGothic", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+  --font-num: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --item-h: 44px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #12181e;
+    --surface: #1c242c;
+    --line: #36424e;
+    --ink: #e9eef3;
+    --muted: #9aa8b5;
+    --accent: #6db3f2;
+    --accent-soft: #1d3248;
+    --good: #6fd094;
+    --good-soft: #17341f;
+    --warn: #f0c060;
+    --warn-soft: #3a2f12;
+    --bad: #ff8a80;
+    --bad-soft: #421c1a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #12181e;
+  --surface: #1c242c;
+  --line: #36424e;
+  --ink: #e9eef3;
+  --muted: #9aa8b5;
+  --accent: #6db3f2;
+  --accent-soft: #1d3248;
+  --good: #6fd094;
+  --good-soft: #17341f;
+  --warn: #f0c060;
+  --warn-soft: #3a2f12;
+  --bad: #ff8a80;
+  --bad-soft: #421c1a;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.wrap { max-width: 520px; margin: 0 auto; padding: 0 16px 48px; display: flex; flex-direction: column; gap: 12px; }
+
+header.top { padding: 16px 0 0; }
+header.top h1 { margin: 0; font-size: 20px; text-wrap: balance; }
+header.top p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+
+/* 合計の帯 */
+.summary {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+}
+.sum-main { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.sum-total { display: flex; align-items: baseline; gap: 6px; }
+.sum-total .label { font-size: 14px; color: var(--muted); }
+.sum-total .value { font-size: 30px; font-weight: 600; line-height: 1; }
+.sum-total .unit { font-size: 14px; color: var(--muted); }
+.pill { font-size: 14px; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
+.pill.good { background: var(--good-soft); color: var(--good); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad  { background: var(--bad-soft);  color: var(--bad); }
+.sum-ot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+.chips { display: flex; gap: 6px; }
+.chip {
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: 999px; padding: 4px 12px; min-height: 32px;
+}
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 700; }
+
+.banner {
+  background: var(--accent-soft); border-radius: 10px; padding: 10px 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 14px;
+}
+.btn {
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: 8px; padding: 8px 14px; min-height: 40px;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 700; }
+.btn.danger { border-color: var(--bad); color: var(--bad); }
+
+/* 行 */
+.rows { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.row {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
+}
+.row.has-bad { border-color: var(--bad); }
+.row-head { display: flex; align-items: center; gap: 8px; }
+.row-no {
+  flex: none; width: 28px; height: 28px; border-radius: 6px;
+  background: var(--bg); color: var(--muted);
+  display: grid; place-items: center; font-size: 14px; font-weight: 600;
+}
+.memo {
+  flex: 1; min-width: 0; font: inherit; color: var(--ink);
+  background: transparent; border: 0; border-bottom: 1px dashed var(--line);
+  padding: 4px 2px; border-radius: 0;
+}
+.memo::placeholder { color: var(--muted); opacity: .8; }
+.clear-row { flex: none; border: 0; background: transparent; color: var(--muted); width: 36px; height: 36px; border-radius: 6px; font-size: 18px; }
+.row-times { display: grid; grid-template-columns: 1fr auto 1fr auto; align-items: center; gap: 6px; }
+.tbtn {
+  border: 1px solid var(--accent); background: var(--accent-soft);
+  border-radius: 8px; padding: 6px 4px; min-height: 56px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+}
+.tbtn .cap { font-size: 12px; color: var(--muted); line-height: 1.2; }
+.tbtn .dec { font-size: 24px; font-weight: 600; line-height: 1.15; }
+.tbtn .clock { font-size: 12px; color: var(--muted); line-height: 1.2; }
+.tbtn.empty { border-style: dashed; border-color: var(--line); background: transparent; }
+.tbtn.empty .dec { font-family: var(--font-body); font-size: 15px; font-weight: 700; color: var(--accent); line-height: 1.6; }
+.tilde { color: var(--muted); }
+.dur { min-width: 64px; text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
+.dur .cap { font-size: 12px; color: var(--muted); line-height: 1.2; }
+.dur .val { font-size: 22px; font-weight: 600; line-height: 1.2; }
+.note { font-size: 13px; padding: 3px 8px; border-radius: 6px; }
+.note.info { color: var(--muted); background: var(--bg); }
+.note.warn { color: var(--warn); background: var(--warn-soft); }
+.note.bad  { color: var(--bad);  background: var(--bad-soft); font-weight: 700; }
+
+.foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.foot .hint { font-size: 13px; color: var(--muted); }
+.confirm { display: flex; align-items: center; gap: 8px; font-size: 14px; flex-wrap: wrap; }
+
+/* 時刻の選択 */
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+.scrim[hidden] { display: none; }
+.sheet {
+  width: 100%; max-width: 520px; background: var(--surface);
+  border-radius: 16px 16px 0 0; padding: 14px 16px 20px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.sheet h2 { margin: 0; font-size: 17px; }
+.preview { display: flex; align-items: baseline; justify-content: center; gap: 10px; }
+.preview .clock { font-size: 18px; color: var(--muted); }
+.preview .arrow { color: var(--muted); }
+.preview .dec { font-size: 36px; font-weight: 600; color: var(--accent); line-height: 1; }
+.wheels { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wheels::before {
+  content: ""; position: absolute; left: 0; right: 0; top: calc(var(--item-h) * 2); height: var(--item-h);
+  background: var(--accent-soft); border-radius: 8px; pointer-events: none;
+}
+.wheel-col { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.wheel {
+  height: calc(var(--item-h) * 5); overflow-y: scroll; scroll-snap-type: y mandatory;
+  padding: calc(var(--item-h) * 2) 0; scrollbar-width: none; overscroll-behavior: contain;
+  position: relative;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+          mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+}
+.wheel::-webkit-scrollbar { display: none; }
+.wheel button {
+  display: block; width: 100%; height: var(--item-h); border: 0; background: transparent;
+  scroll-snap-align: center; font-family: var(--font-num); font-variant-numeric: tabular-nums;
+  font-size: 22px; color: var(--muted);
+}
+.wheel button.sel { color: var(--ink); font-weight: 600; font-size: 26px; }
+.wheel-unit { text-align: center; font-size: 14px; color: var(--muted); }
+.sheet-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
+.sheet-actions .btn { min-height: 48px; font-size: 17px; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>作業日報 時間計算</h1>
+    <p>時刻を選ぶと、日報に書く数字（例 8:40 → 8.67）と計が出ます。</p>
+  </header>
+
+  <section class="summary" aria-live="polite">
+    <div class="sum-main">
+      <div class="sum-total"><span class="label">合計</span><span class="value num" id="total">0.00</span><span class="unit">h</span></div>
+      <span class="pill" id="status"></span>
+    </div>
+    <div class="sum-ot">
+      <span>定時 8.00h ＋ 残業</span>
+      <div class="chips" id="otChips">
+        <button type="button" class="chip num" data-ot="0">0</button>
+        <button type="button" class="chip num" data-ot="75">0.75</button>
+        <button type="button" class="chip num" data-ot="175">1.75</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="banner" id="sampleBanner" hidden>
+    <span>記入例を表示しています。</span>
+    <button type="button" class="btn primary" id="startBtn">例を消して始める</button>
+  </div>
+
+  <ol class="rows" id="rows"></ol>
+
+  <div class="foot">
+    <span class="hint">日報は20行まで。入力はこのスマホに自動で残ります。</span>
+    <div id="clearArea"><button type="button" class="btn danger" id="clearAll">全部消す</button></div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <h2 id="sheetTitle">時刻を選ぶ</h2>
+    <div class="preview"><span class="clock num" id="pvClock">8:40</span><span class="arrow">→</span><span class="dec num" id="pvDec">8.67</span></div>
+    <div class="wheels">
+      <div class="wheel-col"><div class="wheel" id="wheelH" aria-label="時"></div><div class="wheel-unit">時</div></div>
+      <div class="wheel-col"><div class="wheel" id="wheelM" aria-label="分"></div><div class="wheel-unit">分</div></div>
+    </div>
+    <div class="sheet-actions">
+      <button type="button" class="btn" id="cancelBtn">やめる</button>
+      <button type="button" class="btn primary" id="okBtn">決定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var MAX_ROWS = 20, ITEM_H = 44, KEY = "nippo-jikan-v1";
+
+  // 分 → 10進法の100倍の整数（8:40 → 867）
+  function toCents(min) { return Math.round(min * 100 / 60); }
+  function fmtDec(c) { return (c / 100).toFixed(2); }
+  function fmtClock(min) { var m = min % 60; return Math.floor(min / 60) + ":" + (m < 10 ? "0" : "") + m; }
+
+  function blankRows() { var a = []; for (var i = 0; i < MAX_ROWS; i++) a.push({ memo: "", s: null, e: null }); return a; }
+  var state = { rows: blankRows(), ot: 0, sample: false };
+
+  function loadSample() {
+    state.rows = blankRows();
+    state.rows[0] = { memo: "体操", s: 520, e: 526 };
+    state.rows[1] = { memo: "朝礼", s: 526, e: 532 };
+    state.rows[2] = { memo: "設備点検", s: 532, e: 542 };
+    state.rows[3] = { memo: "", s: 542, e: null };
+    state.sample = true;
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  function load() {
+    try {
+      var d = JSON.parse(localStorage.getItem(KEY));
+      if (d && Array.isArray(d.rows) && d.rows.length === MAX_ROWS) { state = d; return; }
+    } catch (e) {}
+    loadSample();
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var rowsEl = $("rows");
+
+  function filled(r) { return r.memo !== "" || r.s !== null || r.e !== null; }
+  function visibleCount() {
+    var last = -1, lastS = -1;
+    state.rows.forEach(function (r, i) {
+      if (r.memo !== "" || r.e !== null) last = i;
+      if (r.s !== null) lastS = i;
+    });
+    return Math.min(MAX_ROWS, Math.max(last + 2, lastS + 1));
+  }
+  function prevEnd(i) { for (var j = i - 1; j >= 0; j--) if (state.rows[j].e !== null) return state.rows[j].e; return null; }
+
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+
+  function timeButton(i, which, min) {
+    var b = el("button", "tbtn" + (min === null ? " empty" : ""));
+    b.type = "button";
+    b.appendChild(el("span", "cap", which === "s" ? "始り" : "終り"));
+    if (min === null) {
+      b.appendChild(el("span", "dec", "選ぶ"));
+    } else {
+      b.appendChild(el("span", "dec num", fmtDec(toCents(min))));
+      b.appendChild(el("span", "clock num", fmtClock(min)));
+    }
+    b.addEventListener("click", function () { openPicker(i, which); });
+    return b;
+  }
+
+  function render() {
+    rowsEl.textContent = "";
+    var total = 0, n = visibleCount();
+    state.rows.forEach(function (r) {
+      if (r.s !== null && r.e !== null && r.e > r.s) total += toCents(r.e) - toCents(r.s);
+    });
+    for (var i = 0; i < n; i++) (function (i) {
+      var r = state.rows[i];
+      var li = el("li", "row");
+      var head = el("div", "row-head");
+      head.appendChild(el("span", "row-no num", String(i + 1)));
+      var memo = el("input", "memo");
+      memo.type = "text"; memo.id = "memo" + i; memo.value = r.memo;
+      memo.placeholder = "内容（メモ・書かなくてもよい）"; memo.setAttribute("aria-label", (i + 1) + "行目の内容");
+      memo.addEventListener("input", function () { r.memo = memo.value; state.sample = false; save(); });
+      memo.addEventListener("change", render);
+      head.appendChild(memo);
+      if (filled(r)) {
+        var x = el("button", "clear-row", "×");
+        x.type = "button"; x.setAttribute("aria-label", (i + 1) + "行目を消す");
+        x.addEventListener("click", function () { state.rows[i] = { memo: "", s: null, e: null }; save(); render(); });
+        head.appendChild(x);
+      }
+      li.appendChild(head);
+
+      var times = el("div", "row-times");
+      times.appendChild(timeButton(i, "s", r.s));
+      times.appendChild(el("span", "tilde", "〜"));
+      times.appendChild(timeButton(i, "e", r.e));
+      var dur = el("div", "dur");
+      dur.appendChild(el("span", "cap", "計"));
+      var ok = r.s !== null && r.e !== null && r.e > r.s;
+      dur.appendChild(el("span", "val num", ok ? fmtDec(toCents(r.e) - toCents(r.s)) : "—"));
+      times.appendChild(dur);
+      li.appendChild(times);
+
+      if (r.s !== null && r.e !== null && r.e <= r.s) {
+        li.classList.add("has-bad");
+        li.appendChild(el("div", "note bad", "終りが始りより前か同じです。時刻を選び直してください。"));
+      }
+      var pe = prevEnd(i);
+      if (r.s !== null && pe !== null) {
+        if (r.s < pe) li.appendChild(el("div", "note warn", "前の行（終り " + fmtDec(toCents(pe)) + "）と時間が重なっています。"));
+        else if (r.s > pe) li.appendChild(el("div", "note info", "前の行の終りから " + (r.s - pe) + "分 あいています（昼休みなどの休憩ならこのままでOK）。"));
+      }
+      rowsEl.appendChild(li);
+    })(i);
+
+    $("total").textContent = fmtDec(total);
+    var target = 800 + state.ot, diff = total - target, st = $("status");
+    if (diff === 0) { st.className = "pill good"; st.textContent = "✓ " + fmtDec(target) + "h と合っています"; }
+    else if (diff < 0) { st.className = "pill warn"; st.textContent = "あと " + fmtDec(-diff) + "h 足りません"; }
+    else { st.className = "pill bad"; st.textContent = fmtDec(diff) + "h 多いです"; }
+    Array.prototype.forEach.call(document.querySelectorAll("#otChips .chip"), function (c) {
+      c.setAttribute("aria-pressed", String(Number(c.dataset.ot) === state.ot));
+    });
+    $("sampleBanner").hidden = !state.sample;
+  }
+
+  // ---- 時刻の選択（回転式） ----
+  var wheelH = $("wheelH"), wheelM = $("wheelM"), scrim = $("scrim");
+  var picking = null;
+
+  function buildWheel(w, count, pad) {
+    for (var i = 0; i < count; i++) (function (i) {
+      var b = el("button", "", pad && i < 10 ? "0" + i : String(i));
+      b.type = "button"; b.tabIndex = -1;
+      b.addEventListener("click", function () { w.scrollTo({ top: i * ITEM_H, behavior: "smooth" }); });
+      w.appendChild(b);
+    })(i);
+    var ticking = false;
+    w.addEventListener("scroll", function () {
+      if (ticking) return; ticking = true;
+      requestAnimationFrame(function () { ticking = false; mark(w); preview(); });
+    });
+    w.tabIndex = 0;
+    w.addEventListener("keydown", function (ev) {
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        setWheel(w, wheelVal(w) + (ev.key === "ArrowDown" ? 1 : -1));
+      }
+    });
+  }
+  function wheelVal(w) { return Math.max(0, Math.min(w.children.length - 1, Math.round(w.scrollTop / ITEM_H))); }
+  function setWheel(w, v) { v = Math.max(0, Math.min(w.children.length - 1, v)); w.scrollTop = v * ITEM_H; mark(w); preview(); }
+  function mark(w) {
+    var v = wheelVal(w);
+    for (var i = 0; i < w.children.length; i++) w.children[i].classList.toggle("sel", i === v);
+  }
+  function preview() {
+    var min = wheelVal(wheelH) * 60 + wheelVal(wheelM);
+    $("pvClock").textContent = fmtClock(min);
+    $("pvDec").textContent = fmtDec(toCents(min));
+  }
+  function openPicker(i, which) {
+    picking = { i: i, which: which };
+    var r = state.rows[i], init = r[which];
+    if (init === null) {
+      if (which === "s") { init = prevEnd(i); if (init === null) init = 520; }
+      else { init = r.s !== null ? r.s : (prevEnd(i) !== null ? prevEnd(i) : 520); }
+    }
+    $("sheetTitle").textContent = (i + 1) + "行目の" + (which === "s" ? "始り" : "終り") + "を選ぶ";
+    scrim.hidden = false;
+    setWheel(wheelH, Math.floor(init / 60));
+    setWheel(wheelM, init % 60);
+    $("okBtn").focus();
+  }
+  function closePicker() { scrim.hidden = true; picking = null; }
+
+  $("okBtn").addEventListener("click", function () {
+    if (!picking) return;
+    var p = picking, r = state.rows[p.i];
+    var oldVal = r[p.which];
+    r[p.which] = wheelVal(wheelH) * 60 + wheelVal(wheelM);
+    // 終りを決めたら、次の行の始りを同じ時刻にそろえる（次の行を手で変えてある場合はそのまま）
+    if (p.which === "e" && p.i + 1 < MAX_ROWS) {
+      var nx = state.rows[p.i + 1];
+      if (nx.s === null || nx.s === oldVal) nx.s = r.e;
+    }
+    state.sample = false;
+    save(); render();
+    if (p.which === "s" && r.e === null) openPicker(p.i, "e"); else closePicker();
+  });
+  $("cancelBtn").addEventListener("click", closePicker);
+  scrim.addEventListener("click", function (ev) { if (ev.target === scrim) closePicker(); });
+  document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && !scrim.hidden) closePicker(); });
+
+  // ---- そのほかの操作 ----
+  $("otChips").addEventListener("click", function (ev) {
+    var c = ev.target.closest(".chip"); if (!c) return;
+    state.ot = Number(c.dataset.ot); save(); render();
+  });
+  function resetAll() { state.rows = blankRows(); state.ot = 0; state.sample = false; save(); render(); }
+  $("startBtn").addEventListener("click", resetAll);
+
+  var clearArea = $("clearArea");
+  function showClearButton() {
+    clearArea.textContent = "";
+    var b = el("button", "btn danger", "全部消す"); b.type = "button"; b.id = "clearAll";
+    b.addEventListener("click", askClear);
+    clearArea.appendChild(b);
+  }
+  function askClear() {
+    clearArea.textContent = "";
+    var box = el("div", "confirm");
+    box.appendChild(el("span", "", "入力を全部消しますか？"));
+    var no = el("button", "btn", "やめる"); no.type = "button"; no.addEventListener("click", showClearButton);
+    var yes = el("button", "btn danger", "消す"); yes.type = "button";
+    yes.addEventListener("click", function () { resetAll(); showClearButton(); });
+    box.appendChild(no); box.appendChild(yes);
+    clearArea.appendChild(box);
+  }
+
+  buildWheel(wheelH, 24, false);
+  buildWheel(wheelM, 60, true);
+  load();
+  showClearButton();
+  render();
+})();
+</script>
+</body>
+</html>
